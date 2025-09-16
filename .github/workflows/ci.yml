@@ -1,0 +1,104 @@
+# file: .github/workflows/rag-ci.yml
+name: RAG CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONUNBUFFERED: "1"
+      CHAT_MODEL: "mock"             # usamos mocks en CI
+      EMBED_MODEL: "mock"
+      DB_PATH: "./chroma_db"
+      DOCS_PATH: "./materiales"
+      COLLECTION: "capacitacion"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Python deps
+        run: |
+          python -m pip install -U pip
+          pip install "fastapi[standard]" uvicorn chromadb pypdf reportlab gradio requests sentence-transformers
+
+      - name: Install promptfoo
+        run: npm i -g promptfoo
+
+      # --- MOCKS para CI (sin Ollama real) ---
+      - name: Start fake Ollama (port 11434)
+        run: |
+          python - <<'PY' &
+          from fastapi import FastAPI; import uvicorn
+          app = FastAPI()
+          @app.get("/api/tags")
+          def tags(): return {"models":[{"name":"mock"}]}
+          uvicorn.run(app, host="127.0.0.1", port=11434, log_level="warning")
+          PY
+          echo $! > fake_ollama.pid
+
+      - name: Generate training PDF
+        run: python generate_training_pdf.py
+
+      - name: Build index (using mocked ollama embeddings)
+        env:
+          PYTHONPATH: "tools/ci_mocks"   # asegúrate de tener tools/ci_mocks/ollama.py
+        run: python build_index.py
+
+      - name: Start API server
+        env:
+          PYTHONPATH: "tools/ci_mocks"
+        run: |
+          nohup uvicorn server:app --host 0.0.0.0 --port 8000 > server.log 2>&1 &
+          echo $! > server.pid
+
+      - name: Wait for /health
+        run: |
+          for i in {1..60}; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health || true)
+            if [ "$code" = "200" ]; then echo "OK /health"; exit 0; fi
+            sleep 2
+          done
+          echo "Timeout esperando /health"; cat server.log; exit 1
+
+      # (Opcional) Ingesta extra de KPIs para asegurar recall en tests
+      - name: Ingest KPIs snippet
+        run: |
+          curl -s -X POST http://localhost:8000/ingest_text \
+            -H "Content-Type: application/json" \
+            -d '{"source_name":"kpis.md","text":"Sección de KPIs:\nCSAT, NPS, FCR, AHT, SLA con metas y descripciones."}' | tee ingest_kpis.json
+
+      - name: Run promptfoo eval
+        run: |
+          test -f promptfooconfig.yaml || (echo "faltante: promptfooconfig.yaml"; exit 1)
+          test -f tests.yaml || (echo "faltante: tests.yaml"; exit 1)
+          promptfoo eval -c promptfooconfig.yaml -c tests.yaml || (echo "::error ::Promptfoo failures"; exit 1)
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rag-ci-artifacts
+          path: |
+            server.log
+            ingest_kpis.json
+            .promptfoo/**
+
+      - name: Cleanup
+        if: always()
+        run: |
+          kill $(cat server.pid) || true
+          kill $(cat fake_ollama.pid) || true
