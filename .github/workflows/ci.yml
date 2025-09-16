@@ -1,5 +1,5 @@
 # file: .github/workflows/rag-ci.yml
-name: RAG CI
+name: RAG CI (Ollama real + cache)
 
 on:
   push:
@@ -10,19 +10,18 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHONUNBUFFERED: "1"
-      CHAT_MODEL: "mock"
-      EMBED_MODEL: "mock"
+      CHAT_MODEL: "phi3:mini"          # modelo real para chat
+      EMBED_MODEL: "nomic-embed-text"  # modelo real para embeddings
       DB_PATH: "./chroma_db"
       DOCS_PATH: "./materiales"
       COLLECTION: "capacitacion"
-      HF_HOME: ~/.cache/huggingface
-      TRANSFORMERS_CACHE: ~/.cache/huggingface
+      OLLAMA_HOST: "127.0.0.1:11434"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ---- Python con cache de pip usando requirements.txt ----
+      # ---------- Python + pip cache ----------
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -32,30 +31,19 @@ jobs:
             requirements.txt
             requirements-dev.txt
 
-      - name: Install Python deps (requirements.txt)
+      - name: Install Python deps
         run: |
           python -m pip install -U pip
           pip install -r requirements.txt
-          # opcional (si tienes extras de dev):
           if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
 
-      # ---- Cache de HuggingFace (para sentence-transformers) ----
-      - name: Cache HuggingFace models
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/huggingface
-          key: hf-${{ runner.os }}-${{ hashFiles('requirements.txt','requirements-dev.txt') }}
-          restore-keys: |
-            hf-${{ runner.os }}-
-
-      # ---- Node + cache NPM global (promptfoo) ----
+      # ---------- Node + npm cache (para promptfoo global) ----------
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Cache npm global
+      - name: Cache npm (global)
         uses: actions/cache@v4
         with:
           path: ~/.npm
@@ -66,29 +54,42 @@ jobs:
       - name: Install promptfoo
         run: npm i -g promptfoo
 
-      # --- MOCKS para CI (sin Ollama real) ---
-      - name: Start fake Ollama (port 11434)
-        run: |
-          python - <<'PY' &
-          from fastapi import FastAPI; import uvicorn
-          app = FastAPI()
-          @app.get("/api/tags")
-          def tags(): return {"models":[{"name":"mock"}]}
-          uvicorn.run(app, host="127.0.0.1", port=11434, log_level="warning")
-          PY
-          echo $! > fake_ollama.pid
+      # ---------- Ollama real + cache de modelos ----------
+      - name: Cache Ollama models
+        uses: actions/cache@v4
+        with:
+          path: ~/.ollama
+          key: ollama-${{ runner.os }}-phi3mini-nomicembed
+          restore-keys: |
+            ollama-${{ runner.os }}-
 
+      - name: Install Ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+
+      - name: Start Ollama
+        run: |
+          nohup ollama serve > ollama.log 2>&1 &
+          # espera a /api/tags
+          for i in {1..60}; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:11434/api/tags || true)
+            if [ "$code" = "200" ]; then echo "OK Ollama /api/tags"; break; fi
+            sleep 2
+          done
+
+      - name: Pull models (cached)
+        run: |
+          ollama pull $EMBED_MODEL
+          ollama pull $CHAT_MODEL
+
+      # ---------- Indexado + servidor ----------
       - name: Generate training PDF
         run: python generate_training_pdf.py
 
-      - name: Build index (using mocked ollama embeddings)
-        env:
-          PYTHONPATH: "tools/ci_mocks"
+      - name: Build index
         run: python build_index.py
 
       - name: Start API server
-        env:
-          PYTHONPATH: "tools/ci_mocks"
         run: |
           nohup uvicorn server:app --host 0.0.0.0 --port 8000 > server.log 2>&1 &
           echo $! > server.pid
@@ -100,43 +101,31 @@ jobs:
             if [ "$code" = "200" ]; then echo "OK /health"; exit 0; fi
             sleep 2
           done
-          echo "Timeout esperando /health"; cat server.log; exit 1
+          echo "Timeout /health"; tail -n +1 server.log ollama.log; exit 1
 
-      - name: Ingest KPIs snippet (opcional)
+      - name: (Optional) Ingest KPIs snippet
         run: |
           curl -s -X POST http://localhost:8000/ingest_text \
             -H "Content-Type: application/json" \
-            -d '{"source_name":"kpis.md","text":"Sección de KPIs:\nCSAT, NPS, FCR, AHT, SLA con metas y descripciones."}' | tee ingest_kpis.json
+            -d '{"source_name":"kpis.md","text":"Sección de KPIs:\nCSAT, NPS, FCR, AHT, SLA con metas y descripciones."}' \
+          | tee ingest_kpis.json
 
+      # ---------- Promptfoo ----------
       - name: Run promptfoo eval
         run: |
           test -f promptfooconfig.yaml || (echo "faltante: promptfooconfig.yaml"; exit 1)
           test -f tests.yaml || (echo "faltante: tests.yaml"; exit 1)
           promptfoo eval -c promptfooconfig.yaml -c tests.yaml || (echo "::error ::Promptfoo failures"; exit 1)
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      # Reportes adicionales
+      - name: Run promptfoo (JSON + Markdown + JUnit)
         if: always()
-        with:
-          name: rag-ci-artifacts
-          path: |
-            server.log
-            ingest_kpis.json
-            .promptfoo/**
-
-      - name: Cleanup
-        if: always()
-        run: |
-          kill $(cat server.pid) || true
-          kill $(cat fake_ollama.pid) || true
-
-      # --- Reportes extra (opcional) ---
-      - name: Run promptfoo eval (JSON + Markdown + JUnit)
         run: |
           export PROMPTFOO_TELEMETRY=0
-          promptfoo eval -c promptfooconfig.yaml -c tests.yaml --format json     --output .promptfoo/results.json
-          promptfoo eval -c promptfooconfig.yaml -c tests.yaml --format markdown --output .promptfoo/report.md
-          promptfoo eval -c promptfooconfig.yaml -c tests.yaml --format junit    --output .promptfoo/promptfoo.junit.xml
+          mkdir -p .promptfoo
+          promptfoo eval -c promptfooconfig.yaml -c tests.yaml --format json     --output .promptfoo/results.json || true
+          promptfoo eval -c promptfooconfig.yaml -c tests.yaml --format markdown --output .promptfoo/report.md || true
+          promptfoo eval -c promptfooconfig.yaml -c tests.yaml --format junit    --output .promptfoo/promptfoo.junit.xml || true
 
       - name: Publish Promptfoo summary
         if: always()
@@ -145,12 +134,18 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           test -f .promptfoo/report.md && cat .promptfoo/report.md >> $GITHUB_STEP_SUMMARY || echo "_no markdown report_"
 
-      - name: Upload Promptfoo artifacts (reports)
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: promptfoo-reports
+          name: rag-ci-artifacts
           path: |
-            .promptfoo/results.json
-            .promptfoo/report.md
-            .promptfoo/promptfoo.junit.xml
+            server.log
+            ollama.log
+            ingest_kpis.json
+            .promptfoo/**
+
+      - name: Cleanup
+        if: always()
+        run: |
+          kill $(cat server.pid) || true
