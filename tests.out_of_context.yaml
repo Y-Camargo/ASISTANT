@@ -1,0 +1,19 @@
+# file: tests.out_of_context.yaml
+tests:
+  - name: "Fútbol - marcador (sin contexto)"
+    vars: { input: "¿Cuál fue el marcador del último partido del equipo de fútbol?" }
+    assert:
+      - type: contains-any
+        value:
+          - "No se encontró contexto"
+          - "No se encontró contexto relevante"
+          - "no hay contexto"
+          - "[source#none]"
+      - type: not-contains
+        value: "Real Madrid"
+      - type: not-contains
+        value: "Barcelona"
+      - type: not-contains
+        value: "2-1"
+      - type: not-contains
+        value: "3-0"

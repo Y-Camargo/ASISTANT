@@ -1,0 +1,6 @@
+{
+  "learning_style": "pragmatica",
+  "level": "basico",
+  "language": "es",
+  "constraints": { "max_words": 120 }
+}

@@ -1,0 +1,41 @@
+# file: tests.yaml
+tests:
+  - name: "Facilitador usa contexto"
+    vars: { input: "¿Qué responsabilidades tiene el facilitador durante la sesión?" }
+    assert:
+      - type: contains
+        value: "[rol_facilitador.md"     # la cita aparece en el texto
+      - type: contains-any
+        value: ["participación","agenda","feedback","acuerdos"]
+
+  - name: "KPIs - lista"
+    vars: { input: "Enumera los KPIs clave de la capacitación." }
+    assert:
+      - type: contains-any
+        value: ["CSAT", "NPS", "FCR", "AHT", "SLA"]
+      - type: contains-any
+        value:
+          - "[kpis.md"
+          - "[manual_capacitacion.pdf"
+  - name: "KPIs - resumen corto"
+    vars: { input: "Resume la sección de Métricas y KPIs en menos de 120 palabras." }
+    assert:
+      - type: contains-any
+        value: ["CSAT", "NPS", "FCR", "AHT", "SLA"]
+      - type: contains-any
+        value:
+          - "[kpis.md"
+          - "[manual_capacitacion.pdf"
+  - name: "KPIs - definiciones puntuales"
+    vars: { input: "Define brevemente CSAT y FCR según el material." }
+    assert:
+      - type: contains-any
+        value: ["CSAT", "FCR"]
+      - type: contains-any
+        value:
+          - "satisfacción"
+          - "primer contacto"
+      - type: contains-any
+        value:
+          - "[kpis.md"
+          - "[manual_capacitacion.pdf"

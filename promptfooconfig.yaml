@@ -1,0 +1,22 @@
+# file: promptfooconfig.yaml
+description: "Eval RAG local"
+providers:
+  - id: http
+    label: local-rag
+    config:
+      url: "http://localhost:8000/chat"
+      method: POST
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "user_id": "ana",
+          "message": "{{input}}",
+          "top_k": 8,
+          "distance_threshold": 0.8,
+          "temperature": 0.1
+        }
+      response:
+        json: "$.answer"   # ← extrae el campo 'answer' de tu JSON
+prompts:
+  - "{{input}}"

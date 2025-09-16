@@ -1,0 +1,5 @@
+Usuario (perfil),Pregunta,Asistente,timestamp
+ana,quiero aprender a leer,,2025-09-16 00:47:52.083577
+Ana,¿Cuáles son los pasos del onboarding,"⚠️ Error API (500). Cuerpo:
+
+{""error"":""Fallo en /chat: ResponseError: model \""llama3:8b\"" not found, try pulling it first (status code: 404)""}",2025-09-16 01:14:07.345958
