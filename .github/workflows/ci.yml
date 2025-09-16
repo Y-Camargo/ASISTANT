@@ -102,3 +102,33 @@ jobs:
         run: |
           kill $(cat server.pid) || true
           kill $(cat fake_ollama.pid) || true
+      
+      - name: Run promptfoo eval (JSON + Markdown + JUnit)
+        run: |
+          export PROMPTFOO_TELEMETRY=0
+          # JSON (para depurar)
+          promptfoo eval -c promptfooconfig.yaml -c tests.yaml \
+            --format json --output .promptfoo/results.json
+          # Markdown (para Job Summary)
+          promptfoo eval -c promptfooconfig.yaml -c tests.yaml \
+            --format markdown --output .promptfoo/report.md
+          # JUnit (para checks nativos)
+          promptfoo eval -c promptfooconfig.yaml -c tests.yaml \
+            --format junit --output .promptfoo/promptfoo.junit.xml
+            
+      - name: Publish Promptfoo summary
+        if: always()
+        run: |
+          echo "## Promptfoo Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          test -f .promptfoo/report.md && cat .promptfoo/report.md >> $GITHUB_STEP_SUMMARY || echo "_no markdown report_"
+
+      - name: Upload Promptfoo artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: promptfoo-reports
+          path: |
+            .promptfoo/results.json
+            .promptfoo/report.md
+            .promptfoo/promptfoo.junit.xml
