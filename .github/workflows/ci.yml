@@ -115,7 +115,8 @@ jobs:
         run: |
           test -f promptfooconfig.yaml || (echo "faltante: promptfooconfig.yaml"; exit 1)
           test -f tests.yaml || (echo "faltante: tests.yaml"; exit 1)
-          promptfoo eval -c promptfooconfig.yaml -c tests.yaml || (echo "::error ::Promptfoo failures"; exit 1)
+          test -f tests.out_of_context.yaml || (echo "faltante: tests.out_of_context.yaml"; exit 1)
+          promptfoo eval -c promptfooconfig.yaml -c tests.yaml -c tests.out_of_context.yaml || (echo "::error ::Promptfoo failures"; exit 1)
 
       # Reportes adicionales
       - name: Run promptfoo (JSON + Markdown + JUnit)
