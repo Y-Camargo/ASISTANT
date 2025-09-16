@@ -10,30 +10,58 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHONUNBUFFERED: "1"
-      CHAT_MODEL: "mock"             # usamos mocks en CI
+      CHAT_MODEL: "mock"
       EMBED_MODEL: "mock"
       DB_PATH: "./chroma_db"
       DOCS_PATH: "./materiales"
       COLLECTION: "capacitacion"
+      HF_HOME: ~/.cache/huggingface
+      TRANSFORMERS_CACHE: ~/.cache/huggingface
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ---- Python con cache de pip usando requirements.txt ----
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
+      - name: Install Python deps (requirements.txt)
+        run: |
+          python -m pip install -U pip
+          pip install -r requirements.txt
+          # opcional (si tienes extras de dev):
+          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+      # ---- Cache de HuggingFace (para sentence-transformers) ----
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+          key: hf-${{ runner.os }}-${{ hashFiles('requirements.txt','requirements-dev.txt') }}
+          restore-keys: |
+            hf-${{ runner.os }}-
+
+      # ---- Node + cache NPM global (promptfoo) ----
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Install Python deps
-        run: |
-          python -m pip install -U pip
-          pip install "fastapi[standard]" uvicorn chromadb pypdf reportlab gradio requests sentence-transformers
+      - name: Cache npm global
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-node20-promptfoo
+          restore-keys: |
+            npm-${{ runner.os }}-node20-
 
       - name: Install promptfoo
         run: npm i -g promptfoo
@@ -55,7 +83,7 @@ jobs:
 
       - name: Build index (using mocked ollama embeddings)
         env:
-          PYTHONPATH: "tools/ci_mocks"   # asegúrate de tener tools/ci_mocks/ollama.py
+          PYTHONPATH: "tools/ci_mocks"
         run: python build_index.py
 
       - name: Start API server
@@ -74,8 +102,7 @@ jobs:
           done
           echo "Timeout esperando /health"; cat server.log; exit 1
 
-      # (Opcional) Ingesta extra de KPIs para asegurar recall en tests
-      - name: Ingest KPIs snippet
+      - name: Ingest KPIs snippet (opcional)
         run: |
           curl -s -X POST http://localhost:8000/ingest_text \
             -H "Content-Type: application/json" \
@@ -102,20 +129,15 @@ jobs:
         run: |
           kill $(cat server.pid) || true
           kill $(cat fake_ollama.pid) || true
-      
+
+      # --- Reportes extra (opcional) ---
       - name: Run promptfoo eval (JSON + Markdown + JUnit)
         run: |
           export PROMPTFOO_TELEMETRY=0
-          # JSON (para depurar)
-          promptfoo eval -c promptfooconfig.yaml -c tests.yaml \
-            --format json --output .promptfoo/results.json
-          # Markdown (para Job Summary)
-          promptfoo eval -c promptfooconfig.yaml -c tests.yaml \
-            --format markdown --output .promptfoo/report.md
-          # JUnit (para checks nativos)
-          promptfoo eval -c promptfooconfig.yaml -c tests.yaml \
-            --format junit --output .promptfoo/promptfoo.junit.xml
-            
+          promptfoo eval -c promptfooconfig.yaml -c tests.yaml --format json     --output .promptfoo/results.json
+          promptfoo eval -c promptfooconfig.yaml -c tests.yaml --format markdown --output .promptfoo/report.md
+          promptfoo eval -c promptfooconfig.yaml -c tests.yaml --format junit    --output .promptfoo/promptfoo.junit.xml
+
       - name: Publish Promptfoo summary
         if: always()
         run: |
@@ -123,7 +145,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           test -f .promptfoo/report.md && cat .promptfoo/report.md >> $GITHUB_STEP_SUMMARY || echo "_no markdown report_"
 
-      - name: Upload Promptfoo artifacts
+      - name: Upload Promptfoo artifacts (reports)
         uses: actions/upload-artifact@v4
         if: always()
         with:
