@@ -73,12 +73,14 @@ En resumen, representa un pipeline confiable, reproducible y auditable para asis
 
 ## 7) Pruebas con promptfoo
 
-   promptfooconfig.yaml            # Archivo de configuración
-   tests.yaml                      # Casos de prueba
-   tests.out_of_context.yaml       # Casos fuera de contexto 
+       promptfooconfig.yaml            # Archivo de configuración
+       
+       tests.yaml                      # Casos de prueba
+       
+       tests.out_of_context.yaml       # Casos fuera de contexto 
+
 
    Ejecutar en el terminal :
-
    promptfoo eval -c promptfooconfig.yaml -c tests.yaml -c tests.out_of_context.yaml
 
    
