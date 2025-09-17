@@ -15,6 +15,7 @@ En resumen, representa un pipeline confiable, reproducible y auditable para asis
 
 ![3](https://github.com/user-attachments/assets/ebbb54cf-6c0c-4961-8907-829ea48616b9)
 
+<img width="1356" height="711" alt="image" src="https://github.com/user-attachments/assets/53691248-b547-4f34-9969-c6c04d0570b4" />
 
 ## 1) Requisitos
 
