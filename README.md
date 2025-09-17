@@ -106,4 +106,35 @@ En resumen, representa un pipeline confiable, reproducible y auditable para asis
     Todo es local y reproducible: datos propios → recuperación auditable → respuesta con citas.
 
 
+# =========================
+# LOCAL RUN (Windows PowerShell)
+# =========================
 
+# 0) Instala deps
+python --version
+pip install -r requirements.txt
+
+# 1) Inicia Ollama (app o servicio) y trae modelos
+ollama pull nomic-embed-text
+ollama pull phi3:mini
+
+# 2) Genera PDF y 3) Indexa
+python generate_training_pdf.py
+python build_index.py
+
+# 4) API
+uvicorn server:app --host 127.0.0.1 --port 8000
+
+# 5) Health
+Invoke-RestMethod -Method Get -Uri http://localhost:8000/health | ConvertTo-Json
+
+# 6)probar desde postman  como responde a diferentes casos
+
+ curl -s -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":"ana","message":"¿Qué responsabilidades tiene el facilitador durante la sesión?","top_k":8,"distance_threshold":0.9,"temperature":0.1}' | jq .
+
+# 7) Promptfoo
+# Instala Node: https://nodejs.org (v18+)
+npx -y promptfoo@latest eval -c promptfooconfig.yaml -c tests.yaml -c tests.out_of_context.yaml
+npx -y promptfoo@latest view
