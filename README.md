@@ -8,6 +8,13 @@ Al preguntar por /chat, recupera los fragmentos más parecidos, arma un prompt y
 Todo se prueba automáticamente con promptfoo, y en GitHub Actions se levanta Ollama real, se reindexa, se corren los tests y se publica un reporte/mini dashboard.
 En resumen, representa un pipeline confiable, reproducible y auditable para asistente interno con datos propios.
 
+![1](https://github.com/user-attachments/assets/2cecf2ca-45a7-45a1-a971-c27416abc4a8)
+
+![2](https://github.com/user-attachments/assets/5c89beb6-b109-4a20-9c46-977d8d5e6177)
+
+
+![3](https://github.com/user-attachments/assets/ebbb54cf-6c0c-4961-8907-829ea48616b9)
+
 
 ## 1) Requisitos
 
