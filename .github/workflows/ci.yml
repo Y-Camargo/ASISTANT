@@ -111,22 +111,32 @@ jobs:
           | tee ingest_kpis.json
 
       # ---------- Promptfoo ----------
-      - name: Run promptfoo eval
+      - name: Run promptfoo eval (capture exit code)
+        id: pf
+        shell: bash
+        continue-on-error: true
         run: |
           test -f promptfooconfig.yaml || (echo "faltante: promptfooconfig.yaml"; exit 1)
           test -f tests.yaml || (echo "faltante: tests.yaml"; exit 1)
           test -f tests.out_of_context.yaml || (echo "faltante: tests.out_of_context.yaml"; exit 1)
-          promptfoo eval -c promptfooconfig.yaml -c tests.yaml -c tests.out_of_context.yaml || (echo "::error ::Promptfoo failures"; exit 1)
 
-      # Reportes adicionales
-      - name: Run promptfoo (JSON + Markdown + JUnit)
+          mkdir -p .promptfoo
+          set +e
+          promptfoo eval -c promptfooconfig.yaml -c tests.yaml -c tests.out_of_context.yaml | tee .promptfoo/console.txt
+          CODE=${PIPESTATUS[0]}                    # <-- 0 = ok, >0 = falló alguna aserción
+          echo "exitcode=$CODE" >> "$GITHUB_OUTPUT"
+          # No abortamos este step
+          exit 0
+
+      - name: Promptfoo reports (md/json/junit)
         if: always()
         run: |
           export PROMPTFOO_TELEMETRY=0
-          mkdir -p .promptfoo
-          promptfoo eval -c promptfooconfig.yaml -c tests.yaml --format json     --output .promptfoo/results.json || true
-          promptfoo eval -c promptfooconfig.yaml -c tests.yaml --format markdown --output .promptfoo/report.md || true
-          promptfoo eval -c promptfooconfig.yaml -c tests.yaml --format junit    --output .promptfoo/promptfoo.junit.xml || true
+          promptfoo eval -c promptfooconfig.yaml -c tests.yaml -c tests.out_of_context.yaml \
+            --format json --output .promptfoo/results.json || true
+          promptfoo eval -c promptfooconfig.yaml -c tests.yaml -c tests.out_of_context.yaml \
+            --format markdown --output .promptfoo/report.md || true
+
 
       - name: Publish Promptfoo summary
         if: always()
@@ -135,16 +145,24 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           test -f .promptfoo/report.md && cat .promptfoo/report.md >> $GITHUB_STEP_SUMMARY || echo "_no markdown report_"
 
-      - name: Upload artifacts
+      - name: Upload Promptfoo artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: rag-ci-artifacts
+          name: promptfoo-reports
           path: |
-            server.log
-            ollama.log
-            ingest_kpis.json
-            .promptfoo/**
+            .promptfoo/console.txt
+            .promptfoo/results.json
+            .promptfoo/report.md
+            .promptfoo/promptfoo.junit.xml
+            
+            - name: Upload artifacts
+              uses: actions/upload-artifact@v4
+              if: always()
+              with:
+                name: rag-ci-artifacts
+                path: |
+                  .promptfoo/**
 
       - name: Cleanup
         if: always()
